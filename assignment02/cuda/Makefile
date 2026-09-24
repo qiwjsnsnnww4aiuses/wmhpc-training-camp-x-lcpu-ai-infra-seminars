@@ -36,7 +36,7 @@ bin/m5_lowprec/test_fp4_gemm: m5_lowprec/test_fp4_gemm.cu common.h
 # LD_LIBRARY_PATH。
 bin/m4_gemm/%: m4_gemm/%.cu common.h
 	@mkdir -p $(dir $@)
-	$(NVCC) $(FLAGS) $(GENCODE) -lcublas -lcuda -o $@ $<
+	$(NVCC) $(FLAGS) $(GENCODE) -o $@ $< -lcublas -lcuda
 
 run/%: bin/%
 	./$<

@@ -1,0 +1,4 @@
+CompileFlags:
+  Add:
+    - -I__REPO_ROOT__/cutlass/include/
+    - -I__REPO_ROOT__/csrc/

@@ -20,9 +20,32 @@
 #include <cstring>
 
 // TODO: 实现三个映射。
-static int swizzle_128B(int row, int colByte) { (void)row; return colByte; }
-static int swizzle_64B(int row, int colByte) { (void)row; return colByte; }
-static int swizzle_32B(int row, int colByte) { (void)row; return colByte; }
+static int swizzle_128B(int row, int colByte) {
+    int chunk = colByte >> 4;    // 16B chunk 编号 0..7
+    int low   = colByte & 0xf;   // 16B 内偏移，不参与 swizzle
+
+    int physChunk = chunk ^ (row & 7);
+
+    return row * 128 + physChunk * 16 + low;
+}
+
+static int swizzle_64B(int row, int colByte) {
+    int chunk = colByte >> 4;    // 0..3
+    int low   = colByte & 0xf;
+
+    int physChunk = chunk ^ (row & 3);
+
+    return row * 64 + physChunk * 16 + low;
+}
+
+static int swizzle_32B(int row, int colByte) {
+    int chunk = colByte >> 4;    // 0..1
+    int low   = colByte & 0xf;
+
+    int physChunk = chunk ^ (row & 1);
+
+    return row * 32 + physChunk * 16 + low;
+}
 
 // 以下为判测,不需要修改。
 static int check_mode(const char* name, int (*fn)(int, int), int rowBytes,

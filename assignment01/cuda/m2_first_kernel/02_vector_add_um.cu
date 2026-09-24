@@ -25,6 +25,58 @@ int main() {
     // 放进计时窗口会把要观察的差距完全淹掉。
     CUDA_CHECK(cudaFree(0));
 
+    float *a, *b, *c;
+    CUDA_CHECK(cudaMallocManaged(&a, bytes));
+    CUDA_CHECK(cudaMallocManaged(&b, bytes));
+    CUDA_CHECK(cudaMallocManaged(&c, bytes));
+    fill_random(a, n, 1);
+    fill_random(b, n, 2);
+
+    // 期望的校验和，host 上先算好，同样不计入计时。
+    double want = 0;
+    for (int i = 0; i < n; i++) want += (double)(a[i] + b[i]);
+
+
+    int threads = 256;
+    int blocks = (n + threads - 1) / threads;
+
+    // ================= 计时窗口开始 =================
+    auto t0 = std::chrono::steady_clock::now();
+
+    vectorAdd<<<blocks, threads>>>(a, b, c, n);
+    CUDA_CHECK_KERNEL();
+    CUDA_CHECK(cudaDeviceSynchronize());  // kernel 执行完毕，结果页才会搬回 host
+
+    // CPU 读完全部结果。unified memory 版里，这一步才会把结果页搬回 host。
+    double got = 0;
+    for (int i = 0; i < n; i++) got += (double)c[i];
+
+    auto t1 = std::chrono::steady_clock::now();
+    // ================= 计时窗口结束 =================
+
+    printf("搬运 + kernel + 读回: %.1f ms\n",
+           std::chrono::duration<double, std::milli>(t1 - t0).count());
+
+    REPORT(fabs(got - want) <= 1e-3 * (1.0 + fabs(want)));
+    return 0;
+}
+/*
+#include <chrono>
+#include "common.h"
+
+__global__ void vectorAdd(const float *a, const float *b, float *c, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) c[idx] = a[idx] + b[idx];
+}
+
+int main() {
+    const int n = 1 << 24;  // 16M 元素
+    size_t bytes = (size_t)n * sizeof(float);
+
+    // 先把 CUDA context 建起来。首次调用 CUDA API 要花几百毫秒初始化，
+    // 放进计时窗口会把要观察的差距完全淹掉。
+    CUDA_CHECK(cudaFree(0));
+
     float *h_a = (float *)malloc(bytes);
     float *h_b = (float *)malloc(bytes);
     float *h_c = (float *)malloc(bytes);
@@ -67,3 +119,4 @@ int main() {
     REPORT(fabs(got - want) <= 1e-3 * (1.0 + fabs(want)));
     return 0;
 }
+*/

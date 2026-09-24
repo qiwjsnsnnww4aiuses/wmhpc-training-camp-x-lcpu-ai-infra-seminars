@@ -1,0 +1,18 @@
+device: NVIDIA B300 SXM6 AC (compute capability 10.3)
+jobs=512 iterations=200 warmup=30 seed=42
+
+[K1/K2 thin GEMM (zero-padded)] useful=(M=16,N=128,K=16), tcgen05 physical M=128
+  correctness  SM80:    PASS, mismatches=0, max_abs=0
+  correctness  tcgen05: PASS, mismatches=0, max_abs=0
+  SM80 mma.sync: 0.006155 ms, useful 5.452 TFLOP/s
+  SM100 tcgen05: 0.012300 ms, useful 2.728 TFLOP/s, issued 21.824 TFLOP/s
+  speedup tcgen05/SM80: 0.500x; issued/useful FLOP: 8.0x
+
+[K2 state-delta GEMM (naturally matched)] useful=(M=128,N=128,K=16), tcgen05 physical M=128
+  correctness  SM80:    PASS, mismatches=0, max_abs=0
+  correctness  tcgen05: PASS, mismatches=0, max_abs=0
+  SM80 mma.sync: 0.014542 ms, useful 18.459 TFLOP/s
+  SM100 tcgen05: 0.050765 ms, useful 5.288 TFLOP/s, issued 5.288 TFLOP/s
+  speedup tcgen05/SM80: 0.286x; issued/useful FLOP: 1.0x
+
+overall correctness: PASS

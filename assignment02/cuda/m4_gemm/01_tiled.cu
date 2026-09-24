@@ -64,24 +64,97 @@ __global__ void gemm_tiled(const __nv_bfloat16* gA, const __nv_bfloat16* gB,
     uint8_t* smem =
         (uint8_t*)(((uintptr_t)smem_raw + 1023) & ~(uintptr_t)1023);
 
-    // TODO:在你 3.2 的实现基础上扩展。结构:
-    // (1) mbarrier 初始化 + TMEM 分配(与 3.2 相同,整段沿用)
-    // (2) 本 block 的输出 tile:tileM = blockIdx.x*BM, tileN = blockIdx.y*BN
-    // (3) K 维循环 it = 0 .. K/BK-1,每轮:
-    //     (a) 全体线程把 A 的 (tileM, it*BK) 块、B 的 (tileN, it*BK) 块
-    //         按 swz128 布局 st.shared 进 smem(即 3.2 的 staging,行列
-    //         起点换成 tile 偏移)
-    //     (b) fence.proxy.async + __syncthreads
-    //     (c) 单线程发射 4 条 k16 的 tcgen05.mma。注意累加位:整个 K
-    //         循环里只有第一条 mma 不累加(enable-input-d = 0),其余
-    //         全部累加到同一块 TMEM——3.2 里"kk>0 才累加"的条件在这里
-    //         要连 it 一起考虑
-    //     (d) commit 到 mbarrier,等 mma 消费完成后才能进入下一轮覆写
-    //         smem。想清楚 parity 怎么随 it 翻转;这一步等错或漏等,
-    //         小 K 可能侥幸通过,大 K 会读到被覆写的数据
-    // (4) epilogue 与 3.2 相同,写回 gD 的 (tileM, tileN) 块(行跨度 N)
-    // (5) dealloc
-    (void)gA; (void)gB; (void)gD; (void)M; (void)N; (void)K; (void)smem;
+    __shared__ __align__(8) uint64_t empty;
+    __shared__ uint32_t s_taddr[1];
+    const int tid = threadIdx.x, warp = tid >> 5, lane = tid & 31;
+    const int tileM = blockIdx.x * BM, tileN = blockIdx.y * BN;
+    const uint32_t empty_addr = (uint32_t)__cvta_generic_to_shared(&empty);
+    const uint32_t a_base = (uint32_t)__cvta_generic_to_shared(smem);
+    const uint32_t b_base = (uint32_t)__cvta_generic_to_shared(smem + BM * BK * 2);
+
+    if (warp == 0) {
+        if (lane == 0) {
+            asm volatile("mbarrier.init.shared::cta.b64 [%0], %1;" : :
+                             "r"(empty_addr), "r"(1));
+            asm volatile("fence.mbarrier_init.release.cluster;");
+        }
+        uint32_t dst = (uint32_t)__cvta_generic_to_shared(s_taddr);
+        asm volatile(
+            "tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 "
+            "[%0], %1;" : : "r"(dst), "r"(64));
+        asm volatile(
+            "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned;");
+    }
+    __syncthreads();
+    const uint32_t taddr = s_taddr[0];
+    uint32_t elected;
+    asm volatile(
+        "{\n.reg .pred p;\nelect.sync _|p, 0xFFFFFFFF;\n"
+        "selp.b32 %0, 1, 0, p;\n}"
+        : "=r"(elected));
+    const uint32_t idesc = (1u << 4) | (1u << 7) | (1u << 10) |
+                           (8u << 17) | (8u << 24);
+
+    for (int it = 0; it < K / BK; ++it) {
+        // 逻辑 global 坐标带 tile/K 偏移；SMEM swizzle 使用本地坐标。
+        for (int i = tid; i < BM * BK; i += blockDim.x) {
+            int row = i / BK, k = i % BK;
+            *reinterpret_cast<__nv_bfloat16*>(&smem[swz128(row, k * 2)]) =
+                gA[(tileM + row) * K + it * BK + k];
+        }
+        for (int i = tid; i < BN * BK; i += blockDim.x) {
+            int row = i / BK, k = i % BK;
+            *reinterpret_cast<__nv_bfloat16*>(
+                &smem[BM * BK * 2 + swz128(row, k * 2)]) =
+                gB[(tileN + row) * K + it * BK + k];
+        }
+        asm volatile("fence.proxy.async.shared::cta;" : : : "memory");
+        __syncthreads();
+
+        if (warp == 0 && elected) {
+            asm volatile("tcgen05.fence::after_thread_sync;");
+            for (int kk = 0; kk < BK; kk += 16) {
+                uint64_t a_desc = make_desc_sm100(a_base + kk * 2, 0, 1024, 2);
+                uint64_t b_desc = make_desc_sm100(b_base + kk * 2, 0, 1024, 2);
+                uint32_t accumulate = (it != 0) || (kk != 0);
+                asm volatile(
+                    "{\n.reg .pred p;\nsetp.ne.b32 p, %4, 0;\n"
+                    "tcgen05.mma.cta_group::1.kind::f16 "
+                    "[%0], %1, %2, %3, p;\n}" : :
+                    "r"(taddr), "l"(a_desc), "l"(b_desc), "r"(idesc),
+                    "r"(accumulate));
+            }
+            asm volatile(
+                "tcgen05.commit.cta_group::1.mbarrier::arrive::one"
+                ".shared::cluster.b64 [%0];" : : "r"(empty_addr) : "memory");
+        }
+        // 单缓冲：全部线程确认 MMA 已不再读取这份 A/B，才覆盖它。
+        mbar_wait(empty_addr, it & 1);
+        __syncthreads();
+    }
+
+    asm volatile("tcgen05.fence::after_thread_sync;");
+    const int row = warp * 32 + lane;
+    for (int col = 0; col < BN; col += 8) {
+        uint32_t src = taddr + ((uint32_t)(warp * 32) << 16) + col;
+        float r[8];
+        asm volatile(
+            "tcgen05.ld.sync.aligned.32x32b.x8.b32 "
+            "{%0,%1,%2,%3,%4,%5,%6,%7}, [%8];"
+            : "=f"(r[0]), "=f"(r[1]), "=f"(r[2]), "=f"(r[3]),
+              "=f"(r[4]), "=f"(r[5]), "=f"(r[6]), "=f"(r[7])
+            : "r"(src));
+        asm volatile("tcgen05.wait::ld.sync.aligned;");
+#pragma unroll
+        for (int i = 0; i < 8; ++i)
+            gD[(tileM + row) * N + tileN + col + i] = r[i];
+    }
+    __syncthreads();
+    if (warp == 0)
+        asm volatile(
+            "tcgen05.dealloc.cta_group::1.sync.aligned.b32 %0, %1;" : :
+            "r"(taddr), "r"(64));
+    (void)M;
 }
 
 int main(int argc, char** argv) {

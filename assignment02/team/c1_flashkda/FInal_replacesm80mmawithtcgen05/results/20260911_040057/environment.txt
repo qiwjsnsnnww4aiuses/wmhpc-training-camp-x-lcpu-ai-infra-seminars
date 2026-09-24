@@ -1,0 +1,18 @@
+2026-09-11T04:00:57+00:00
+dev-slurm
+name, compute_cap, driver_version, memory.total [MiB]
+NVIDIA B300 SXM6 AC, 10.3, 580.126.09, 275040 MiB
+nvcc: NVIDIA (R) Cuda compiler driver
+Copyright (c) 2005-2025 NVIDIA Corporation
+Built on Wed_Aug_20_01:58:59_PM_PDT_2025
+Cuda compilation tools, release 13.0, V13.0.88
+Build cuda_13.0.r13.0/compiler.36424714_0
+/home/lcpu/73198077/lcpu2026/assignment02/team/c1_flashkda/FlashKDA-upstream/.venv/bin/python
+Python 3.12.13
+torch: 2.14.0+cu130
+torch CUDA: 13.0
+torch CUDA available: True
+flash_kda: /home/lcpu/73198077/lcpu2026/assignment02/team/c1_flashkda/FlashKDA-upstream/flash_kda/__init__.py
+fla: /home/lcpu/73198077/lcpu2026/assignment02/team/c1_flashkda/FlashKDA-upstream/.venv/lib/python3.12/site-packages/fla/__init__.py
+device: NVIDIA B300 SXM6 AC
+capability: (10, 3)

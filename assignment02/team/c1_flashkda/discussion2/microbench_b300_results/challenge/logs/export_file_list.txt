@@ -1,0 +1,15 @@
+-rwxr-xr-x 1 73198077 lcpu-users 1.1M Sep 11 02:45 bin/instruction_only_mma
+-rw-r--r-- 1 73198077 lcpu-users 650K Sep 11 02:45 bin/instruction_only_mma.sass
+
+../repro_results/challenge/:
+total 20K
+-rw-r--r-- 1 73198077 lcpu-users  147 Sep 11 02:43 build_103a.log
+-rw-r--r-- 1 73198077 lcpu-users  781 Sep 11 03:12 environment.txt
+-rw-r--r-- 1 73198077 lcpu-users    0 Sep 11 03:12 export_file_list.txt
+-rw-r--r-- 1 73198077 lcpu-users 2.6K Sep 11 02:45 full_run_seed42.log
+-rw-r--r-- 1 73198077 lcpu-users 1.7K Sep 11 03:12 sass_functions_and_instructions.txt
+-rw-r--r-- 1 73198077 lcpu-users  559 Sep 11 03:12 sass_tcgen05_evidence.txt
+
+results/:
+total 4.0K
+-rw-r--r-- 1 73198077 lcpu-users 878 Sep 11 02:45 instruction_only_103a_20260911_024535.txt

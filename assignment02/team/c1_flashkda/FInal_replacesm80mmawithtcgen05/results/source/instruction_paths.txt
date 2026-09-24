@@ -1,0 +1,14 @@
+csrc/smxx/utils.cuh:153:        SM80_16x8x16_F32BF16BF16F32_TN{},
+csrc/smxx/utils.cuh:175:        SM80_16x8x16_F32BF16BF16F32_TN{},
+csrc/smxx/utils.cuh:200:        SM80_16x8x16_F16F16F16F16_TN{},
+csrc/smxx/utils.cuh:258:        SM80_16x8x16_F16F16F16F16_TN::fma(d[0], d[1], a[0], a[1], a[2], a[3], b[0], b[1], c[0], c[1]);
+csrc/smxx/utils.cuh:259:        SM80_16x8x16_F16F16F16F16_TN::fma(d[2], d[3], a[0], a[1], a[2], a[3], b[2], b[3], c[2], c[3]);
+csrc/smxx/tcgen05.cuh:69:        "tcgen05.mma.cta_group::1.kind::f16 "
+csrc/smxx/fwd_kernel2.cuh:8:#ifdef FLASH_KDA_TCGEN05_K2
+csrc/smxx/fwd_kernel2.cuh:116:#ifdef FLASH_KDA_TCGEN05_K2
+csrc/smxx/fwd_kernel2.cuh:202:#ifdef FLASH_KDA_TCGEN05_K2
+csrc/smxx/fwd_kernel2.cuh:456:#ifdef FLASH_KDA_TCGEN05_K2
+csrc/smxx/fwd_kernel2.cuh:510:#ifdef FLASH_KDA_TCGEN05_K2
+csrc/smxx/fwd_kernel2.cuh:708:                MMA_Atom<SM80_16x8x16_F32BF16BF16F32_TN>{},
+csrc/smxx/fwd_kernel2.cuh:984:#ifdef FLASH_KDA_TCGEN05_K2
+setup.py:79:                '-DFLASH_KDA_TCGEN05_K2=1',

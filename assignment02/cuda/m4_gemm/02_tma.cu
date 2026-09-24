@@ -62,20 +62,106 @@ __global__ void gemm_tma(const __nv_bfloat16* gA, const __nv_bfloat16* gB,
     uint8_t* smem =
         (uint8_t*)(((uintptr_t)smem_raw + 1023) & ~(uintptr_t)1023);
 
-    // TODO:把你 4.1 的 kernel 搬进来,K 循环的 staging 部分改为:
-    // (1) 多初始化一组 mbarrier:full(TMA 到达)。4.1 里等 mma 消费
-    //     完成的那个继续当 empty 用
-    // (2) 每轮:除首轮外先等 empty(smem 可覆写)→ 单线程发 TMA →
-    //     等 full → mma(与 4.1 相同)→ commit
-    //     发 TMA = 一条 mbarrier.arrive.expect_tx(字节数一次报满
-    //     (BM+BN)*BK*2,A、B 两条拷贝共用一个 mbar)+ 两条
-    //     cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::
-    //     complete_tx::bytes,坐标次序与 tensor map 的维度次序一致:
-    //     A 是 {it*BK, tileM},B 是 {it*BK, tileN}
-    // (3) 删掉 st.shared staging、swz128、fence.proxy.async(见文件头)
-    // full/empty 的 parity 都随轮次翻转,想清楚各自翻转的节奏。
-    (void)gA; (void)gB; (void)gD; (void)M; (void)N; (void)K;
-    (void)tmapA; (void)tmapB; (void)smem;
+    __shared__ __align__(8) uint64_t full, empty;
+    __shared__ uint32_t s_taddr[1];
+    const int tid = threadIdx.x, warp = tid >> 5, lane = tid & 31;
+    const int tileM = blockIdx.x * BM, tileN = blockIdx.y * BN;
+    const uint32_t full_addr = (uint32_t)__cvta_generic_to_shared(&full);
+    const uint32_t empty_addr = (uint32_t)__cvta_generic_to_shared(&empty);
+    const uint32_t a_base = (uint32_t)__cvta_generic_to_shared(smem);
+    const uint32_t b_base = (uint32_t)__cvta_generic_to_shared(smem + BM * BK * 2);
+
+    if (warp == 0) {
+        if (lane == 0) {
+            asm volatile("mbarrier.init.shared::cta.b64 [%0], %1;" : :
+                             "r"(full_addr), "r"(1));
+            asm volatile("mbarrier.init.shared::cta.b64 [%0], %1;" : :
+                             "r"(empty_addr), "r"(1));
+            asm volatile("fence.mbarrier_init.release.cluster;");
+        }
+        uint32_t dst = (uint32_t)__cvta_generic_to_shared(s_taddr);
+        asm volatile(
+            "tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 "
+            "[%0], %1;" : : "r"(dst), "r"(64));
+        asm volatile(
+            "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned;");
+    }
+    __syncthreads();
+    const uint32_t taddr = s_taddr[0];
+    uint32_t elected;
+    asm volatile(
+        "{\n.reg .pred p;\nelect.sync _|p, 0xFFFFFFFF;\n"
+        "selp.b32 %0, 1, 0, p;\n}"
+        : "=r"(elected));
+    const uint32_t idesc = (1u << 4) | (1u << 7) | (1u << 10) |
+                           (8u << 17) | (8u << 24);
+
+    if (warp == 0 && elected) {
+        const uint64_t map_a = reinterpret_cast<uint64_t>(&tmapA);
+        const uint64_t map_b = reinterpret_cast<uint64_t>(&tmapB);
+        for (int it = 0; it < K / BK; ++it) {
+            if (it != 0) mbar_wait(empty_addr, (it - 1) & 1);
+
+            // 一次承诺 A+B 共 24 KiB；两条 TMA 向同一个 full 报完成。
+            asm volatile(
+                "mbarrier.arrive.expect_tx.shared::cta.b64 _, [%0], %1;"
+                : : "r"(full_addr), "r"((BM + BN) * BK * 2) : "memory");
+            asm volatile(
+                "cp.async.bulk.tensor.2d.shared::cluster.global."
+                "mbarrier::complete_tx::bytes "
+                "[%0], [%1, {%3, %4}], [%2];"
+                : : "r"(a_base), "l"(map_a), "r"(full_addr),
+                    "r"(it * BK), "r"(tileM) : "memory");
+            asm volatile(
+                "cp.async.bulk.tensor.2d.shared::cluster.global."
+                "mbarrier::complete_tx::bytes "
+                "[%0], [%1, {%3, %4}], [%2];"
+                : : "r"(b_base), "l"(map_b), "r"(full_addr),
+                    "r"(it * BK), "r"(tileN) : "memory");
+
+            mbar_wait(full_addr, it & 1);
+            asm volatile("tcgen05.fence::after_thread_sync;");
+            for (int kk = 0; kk < BK; kk += 16) {
+                uint64_t a_desc = make_desc_sm100(a_base + kk * 2, 0, 1024, 2);
+                uint64_t b_desc = make_desc_sm100(b_base + kk * 2, 0, 1024, 2);
+                uint32_t accumulate = (it != 0) || (kk != 0);
+                asm volatile(
+                    "{\n.reg .pred p;\nsetp.ne.b32 p, %4, 0;\n"
+                    "tcgen05.mma.cta_group::1.kind::f16 "
+                    "[%0], %1, %2, %3, p;\n}" : :
+                    "r"(taddr), "l"(a_desc), "l"(b_desc), "r"(idesc),
+                    "r"(accumulate));
+            }
+            asm volatile(
+                "tcgen05.commit.cta_group::1.mbarrier::arrive::one"
+                ".shared::cluster.b64 [%0];" : : "r"(empty_addr) : "memory");
+        }
+    }
+
+    // 最后一轮没有下一轮的 empty wait，所有 warp 在读 TMEM 前 drain。
+    mbar_wait(empty_addr, (K / BK - 1) & 1);
+    asm volatile("tcgen05.fence::after_thread_sync;");
+    const int row = warp * 32 + lane;
+    for (int col = 0; col < BN; col += 8) {
+        uint32_t src = taddr + ((uint32_t)(warp * 32) << 16) + col;
+        float r[8];
+        asm volatile(
+            "tcgen05.ld.sync.aligned.32x32b.x8.b32 "
+            "{%0,%1,%2,%3,%4,%5,%6,%7}, [%8];"
+            : "=f"(r[0]), "=f"(r[1]), "=f"(r[2]), "=f"(r[3]),
+              "=f"(r[4]), "=f"(r[5]), "=f"(r[6]), "=f"(r[7])
+            : "r"(src));
+        asm volatile("tcgen05.wait::ld.sync.aligned;");
+#pragma unroll
+        for (int i = 0; i < 8; ++i)
+            gD[(tileM + row) * N + tileN + col + i] = r[i];
+    }
+    __syncthreads();
+    if (warp == 0)
+        asm volatile(
+            "tcgen05.dealloc.cta_group::1.sync.aligned.b32 %0, %1;" : :
+            "r"(taddr), "r"(64));
+    (void)gA; (void)gB; (void)M;
 }
 
 int main(int argc, char** argv) {
@@ -102,10 +188,30 @@ int main(int argc, char** argv) {
     CUDA_CHECK(cudaMemcpy(dB, hB.data(), nB * 2, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemset(dD, 0xFF, nD * 4));
 
-    // TODO:cuTensorMapEncodeTiled 建 tmapA/tmapB(参数要点见文件头;
-    // 返回值要检查,CUDA_SUCCESS 之外一律报错退出——tensor map 参数错
-    // 的典型症状是 kernel 静默读到 0 或越界,而不是启动失败)。
     CUtensorMap tmapA = {}, tmapB = {};
+    const cuuint64_t dimsA[2] = {(cuuint64_t)K, (cuuint64_t)M};
+    const cuuint64_t dimsB[2] = {(cuuint64_t)K, (cuuint64_t)N};
+    const cuuint64_t strides[1] = {(cuuint64_t)K * 2};
+    const cuuint32_t boxA[2] = {BK, BM}, boxB[2] = {BK, BN};
+    const cuuint32_t elemStrides[2] = {1, 1};
+    CUresult rc = cuTensorMapEncodeTiled(
+        &tmapA, CU_TENSOR_MAP_DATA_TYPE_BFLOAT16, 2, dA, dimsA, strides,
+        boxA, elemStrides, CU_TENSOR_MAP_INTERLEAVE_NONE,
+        CU_TENSOR_MAP_SWIZZLE_128B, CU_TENSOR_MAP_L2_PROMOTION_NONE,
+        CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
+    if (rc != CUDA_SUCCESS) {
+        fprintf(stderr, "A tensor map encode failed: CUresult=%d\n", (int)rc);
+        return 1;
+    }
+    rc = cuTensorMapEncodeTiled(
+        &tmapB, CU_TENSOR_MAP_DATA_TYPE_BFLOAT16, 2, dB, dimsB, strides,
+        boxB, elemStrides, CU_TENSOR_MAP_INTERLEAVE_NONE,
+        CU_TENSOR_MAP_SWIZZLE_128B, CU_TENSOR_MAP_L2_PROMOTION_NONE,
+        CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
+    if (rc != CUDA_SUCCESS) {
+        fprintf(stderr, "B tensor map encode failed: CUresult=%d\n", (int)rc);
+        return 1;
+    }
 
     dim3 grid(M / BM, N / BN);
     size_t smemBytes = (size_t)(BM + BN) * BK * 2 + 1024;

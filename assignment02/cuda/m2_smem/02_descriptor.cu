@@ -26,14 +26,26 @@
 static uint64_t make_desc(uint32_t saddr, uint32_t lbo, uint32_t sbo,
                           uint32_t layout) {
     (void)saddr; (void)lbo; (void)sbo; (void)layout;
-    return 0;
+    uint64_t desc = 0;
+
+    desc |= ((uint64_t)(saddr >> 4) & 0x3fffULL) << 0;
+    desc |= ((uint64_t)(lbo   >> 4) & 0x3fffULL) << 16;
+    desc |= ((uint64_t)(sbo   >> 4) & 0x3fffULL) << 32;
+
+    // version bit[46,48), 固定为 1
+    desc |= 1ULL << 46;
+
+    // layout_type bit[61,64)
+    desc |= ((uint64_t)layout & 0x7ULL) << 61;
+
+    return desc;
 }
 
 // TODO (b):三个场景的 {LBO 字节, SBO 字节, layout 编码}。
 static const uint32_t SCEN[3][3] = {
-    {0, 0, 0},  // 场景 1
-    {0, 0, 0},  // 场景 2
-    {0, 0, 0},  // 场景 3
+    {128, 1024, 0},  // 场景 1
+    {0, 1024, 2},  // 场景 2
+    {0, 1024, 2},  // 场景 3
 };
 
 // 以下为判测,不需要修改。不匹配时按字段报差异,不打印期望值。

@@ -9,6 +9,8 @@
 // 两版都要 PASS。评测结果会包含两版的耗时和比值。
 #include "common.h"
 
+__constant__ float COEF[8];
+
 __global__ void poly_eval_global(const float *x, float *y, const float *coef,
                                  int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -24,6 +26,15 @@ __global__ void poly_eval_global(const float *x, float *y, const float *coef,
 __global__ void poly_eval_const(const float *x, float *y, const float *coef,
                                 int n) {
     // TODO：从这里开始写（读 __constant__ COEF 的版本）
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) {
+        float xi = x[i];
+        float acc = 0.f;
+        for (int k = 7; k >= 0; k--) {
+            acc = acc * xi + COEF[k];  // 直接用 __constant__ 数组
+        }
+        y[i] = acc;
+    }
 }
 
 // ---------------- 以下是判测与计时，不要修改 ----------------
@@ -78,6 +89,7 @@ int main() {
     CUDA_CHECK(cudaMemcpy(d_coef, h_coef, sizeof(h_coef), cudaMemcpyHostToDevice));
 
     // TODO：把 h_coef 拷进你声明的 __constant__ 数组（cudaMemcpyToSymbol）。
+    CUDA_CHECK(cudaMemcpyToSymbol(COEF, h_coef, sizeof(h_coef)));
 
     int threads = 256;
     int blocks = (n + threads - 1) / threads;
@@ -96,3 +108,4 @@ int main() {
     emit_result("4.3", "pass", metrics);
     return 0;
 }
+

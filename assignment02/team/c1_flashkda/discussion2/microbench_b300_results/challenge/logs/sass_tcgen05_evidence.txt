@@ -1,0 +1,6 @@
+25:		Function : _Z18tcgen05_mma_kernelILi128EEvPK13__nv_bfloat16S2_Pf
+653:        /*1390*/                   UTCHMMA gdesc[UR6], gdesc[UR8], tmem[UR5], tmem[UR12], idesc[UR13], !UPT ;  /* 0x00ff0c08060075ea */
+1950:		Function : _Z15sm80_mma_kernelILi128EEvPK13__nv_bfloat16S2_Pf
+2451:		Function : _Z18tcgen05_mma_kernelILi16EEvPK13__nv_bfloat16S2_Pf
+3109:        /*1480*/                   UTCHMMA gdesc[UR6], gdesc[UR8], tmem[UR5], tmem[UR12], idesc[UR13], !UPT ;  /* 0x00ff0c08060075ea */
+4408:		Function : _Z15sm80_mma_kernelILi16EEvPK13__nv_bfloat16S2_Pf

@@ -1,0 +1,14 @@
+25:		Function : _Z18tcgen05_mma_kernelILi128EEvPK13__nv_bfloat16S2_Pf
+653:        /*1390*/                   UTCHMMA gdesc[UR6], gdesc[UR8], tmem[UR5], tmem[UR12], idesc[UR13], !UPT ;  /* 0x00ff0c08060075ea */
+1950:		Function : _Z15sm80_mma_kernelILi128EEvPK13__nv_bfloat16S2_Pf
+2332:        /*0be0*/                   HMMA.16816.F32.BF16 R8, R20.reuse, R2, RZ ;                                 /* 0x000000021408723c */
+2334:        /*0bf0*/                   HMMA.16816.F32.BF16 R16, R20, R4, RZ ;                                      /* 0x000000041410723c */
+2342:        /*0c30*/                   HMMA.16816.F32.BF16 R12, R20, R6, RZ ;                                      /* 0x00000006140c723c */
+2348:        /*0c60*/                   HMMA.16816.F32.BF16 R20, R20, R24, RZ ;                                     /* 0x000000181414723c */
+2451:		Function : _Z18tcgen05_mma_kernelILi16EEvPK13__nv_bfloat16S2_Pf
+3109:        /*1480*/                   UTCHMMA gdesc[UR6], gdesc[UR8], tmem[UR5], tmem[UR12], idesc[UR13], !UPT ;  /* 0x00ff0c08060075ea */
+4408:		Function : _Z15sm80_mma_kernelILi16EEvPK13__nv_bfloat16S2_Pf
+4818:        /*0cc0*/                   HMMA.16816.F32.BF16 R8, R4, R8, RZ ;                                        /* 0x000000080408723c */
+4824:        /*0cf0*/                   HMMA.16816.F32.BF16 R12, R4.reuse, R12, RZ ;                                /* 0x0000000c040c723c */
+4826:        /*0d00*/                   HMMA.16816.F32.BF16 R16, R4.reuse, R16, RZ ;                                /* 0x000000100410723c */
+4832:        /*0d30*/                   HMMA.16816.F32.BF16 R4, R4, R2, RZ ;                                        /* 0x000000020404723c */

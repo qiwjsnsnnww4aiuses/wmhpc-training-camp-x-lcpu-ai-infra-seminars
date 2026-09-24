@@ -40,10 +40,34 @@
 
 __global__ void reduce_interleaved(const float *in, float *out) {
     // TODO：从这里开始写（交错配对版本）
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    __shared__ float buf[BLOCK];
+    buf[tid] = in[idx];
+    __syncthreads();//全部载入buf再启动，不然会读取灰in[]值
+    for(int s = 1; s < blockDim.x; s += s){
+        if(tid % (s*2) == 0)
+            buf[tid] += buf[tid + s];
+        __syncthreads();//防止4没更新 0就加了旧值
+    }
+    if(tid == 0)
+        out[blockIdx.x] = buf[tid];
 }
 
 __global__ void reduce_contiguous(const float *in, float *out) {
     // TODO：从这里开始写（连续配对版本）
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    __shared__ float buf[BLOCK];
+    buf[tid] = in[idx];
+    __syncthreads();//全部载入buf再启动，不然会读取灰in[]值
+    for(int s = blockDim.x/2; s > 0; s /= 2){
+        if(tid < s)
+            buf[tid] += buf[tid + s];
+        __syncthreads();//防止1没更新 0就加了旧值
+    }
+    if(tid == 0)
+        out[blockIdx.x] = buf[tid];
 }
 
 // ---------------- 以下是判测与计时，不要修改 ----------------
@@ -109,3 +133,4 @@ int main() {
     emit_result("3.5", "pass", metrics);
     return 0;
 }
+
